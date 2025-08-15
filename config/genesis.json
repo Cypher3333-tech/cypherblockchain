@@ -1,0 +1,14 @@
+{
+  "chain_id": "cypher-mainnet",
+  "genesis_time": "2025-08-14T00:00:00Z",
+  "initial_difficulty": 4,
+  "block_reward": 50,
+  "premine": [
+    {
+      "sender": "GENESIS_FAUCET",
+      "recipient": "GENESIS_FAUCET",
+      "amount": 100000000000000000000000000000000000000000,
+      "nonce": 0
+    }
+  ]
+}

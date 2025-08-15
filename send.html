@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Cypher Blockchain - Send Coins</title>
+</head>
+<body>
+  <h1>Send Cypher Coins</h1>
+
+  <label>Sender Address:</label><br>
+  <input id="sender" placeholder="Enter sender address"><br><br>
+
+  <label>Recipient Address:</label><br>
+  <input id="recipient" placeholder="Enter recipient address"><br><br>
+
+  <label>Amount:</label><br>
+  <input id="amount" type="number" placeholder="Enter amount"><br><br>
+
+  <button onclick="sendCoins()">Send Coins</button>
+
+  <pre id="result"></pre>
+
+  <script>
+    async function sendCoins() {
+      try {
+        const sender = document.getElementById("sender").value;
+        const recipient = document.getElementById("recipient").value;
+        const amount = parseInt(document.getElementById("amount").value);
+
+        // Get nonce from node
+        const balRes = await fetch(`http://localhost:5000/wallet/balance/${sender}`);
+        if (!balRes.ok) throw new Error("Failed to fetch balance/nonce");
+        const balData = await balRes.json();
+        const nonce = balData.nonce ?? 0;
+
+        // Send transaction without signature
+        const txRes = await fetch("http://localhost:5000/tx/new", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sender: sender,
+            recipient: recipient,
+            amount: amount,
+            nonce: nonce
+          })
+        });
+
+        if (!txRes.ok) throw new Error("Transaction rejected by node");
+        const txData = await txRes.json();
+        document.getElementById("result").innerText = JSON.stringify(txData, null, 2);
+      } catch (err) {
+        document.getElementById("result").innerText = "Error: " + err.message;
+      }
+    }
+  </script>
+</body>
+</html>
