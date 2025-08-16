@@ -1,35 +1,37 @@
-# cypher/wallet.py
-import os
-import json
-import secrets
-import hashlib
+from ecdsa import SigningKey, SECP256k1, VerifyingKey, BadSignatureError
+from .utils import sha256, address_from_pubkey_hex, tx_message
 
-DATA_DIR = os.environ.get("CYPHER_DATA") or os.path.join(os.getcwd(), "data")
-os.makedirs(DATA_DIR, exist_ok=True)
-
-def sha256_hex(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
 
 class Wallet:
-    def __init__(self, keyfile=None):
-        self.keyfile = keyfile or os.path.join(DATA_DIR, "wallet.json")
-        if os.path.exists(self.keyfile):
-            self.load()
-        else:
-            self.create()
+    def __init__(self, signing_key: SigningKey | None = None):
+        self.sk = signing_key or SigningKey.generate(curve=SECP256k1)
+        self.vk = self.sk.get_verifying_key()
 
-    def create(self):
-        self.private_key = secrets.token_hex(32)
-        self.address = sha256_hex(self.private_key.encode())[:40]  # simple address
-        self.save()
+    @property
+    def private_key_hex(self) -> str:
+        return self.sk.to_string().hex()
 
-    def save(self):
-        data = {"private_key": self.private_key, "address": self.address}
-        with open(self.keyfile, "w") as f:
-            json.dump(data, f)
+    @property
+    def public_key_hex(self) -> str:
+        return self.vk.to_string().hex()
 
-    def load(self):
-        with open(self.keyfile, "r") as f:
-            data = json.load(f)
-        self.private_key = data["private_key"]
-        self.address = data["address"]
+    @property
+    def address(self) -> str:
+        return address_from_pubkey_hex(self.public_key_hex)
+
+    def sign_transaction(self, sender: str, recipient: str, amount: int, nonce: int) -> str:
+        msg = tx_message(sender, recipient, amount, nonce)
+        sig = self.sk.sign_deterministic(msg)
+        return sig.hex()
+
+
+def verify_signature(pubkey_hex: str, signature_hex: str, sender: str, recipient: str, amount: int, nonce: int) -> bool:
+    try:
+        vk = VerifyingKey.from_string(bytes.fromhex(pubkey_hex), curve=SECP256k1)
+        msg = tx_message(sender, recipient, amount, nonce)
+        vk.verify(bytes.fromhex(signature_hex), msg)
+        return True
+    except BadSignatureError:
+        return False
+    except Exception:
+        return False

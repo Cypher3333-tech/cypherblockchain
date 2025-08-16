@@ -1,139 +1,46 @@
-# run_node.py
 import os
-import json
-import time
-from flask import Flask, request, render_template_string
-from cypher.blockchain import Blockchain, Transaction
+import traceback
+from cypher.blockchain import Blockchain
 from cypher.wallet import Wallet
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
+chain: Blockchain | None = None
+node_wallet: Wallet | None = None
 
-# ------------------- Setup -------------------
-NODE_ID = "default-node"
-GENESIS_PATH = "config/genesis.json"
-chain = Blockchain(node_id=NODE_ID, genesis_path=GENESIS_PATH)
+# ------------------- API -------------------
+@app.route("/health", methods=["GET"])
+def health():
+    return {"status": "ok", "node_id": chain.node_id}, 200
 
-# ------------------- HTML Template -------------------
-HTML_PAGE = """
-<!doctype html>
-<html>
-<head>
-  <title>Cypher Node</title>
-</head>
-<body>
-  <h1>Cypher Blockchain Node</h1>
-  {% if message %}
-    <p><b>{{ message }}</b></p>
-  {% endif %}
 
-  <h2>Create Wallet</h2>
-  <form method="post" action="/create_wallet">
-    <button type="submit">New Wallet</button>
-  </form>
-  {% if new_wallet %}
-    <p>Wallet Address: {{ new_wallet }}</p>
-  {% endif %}
+@app.route("/chain", methods=["GET"])
+def get_chain():
+    return {"length": len(chain.chain), "chain": [b.to_dict() for b in chain.chain]}, 200
 
-  <h2>Mine Coins</h2>
-  <form method="post" action="/mine">
-    <input name="miner" placeholder="Your Wallet Address" value="{{ default_wallet }}">
-    <button type="submit">Mine</button>
-  </form>
-  {% if balance is not none %}
-    <p>Balance: {{ balance }}</p>
-  {% endif %}
 
-  <h2>Send Coins</h2>
-  <form method="post" action="/send">
-    <input name="sender" placeholder="Sender Wallet" value="{{ default_wallet }}">
-    <input name="recipient" placeholder="Recipient Wallet">
-    <input name="amount" placeholder="Amount">
-    <button type="submit">Send</button>
-  </form>
-
-  <h2>Blockchain</h2>
-  <pre>{{ chain_json }}</pre>
-</body>
-</html>
-"""
-
-# ------------------- Routes -------------------
-@app.route("/", methods=["GET"])
-def index():
-    default_wallet = ""
-    balance = None
-    return render_template_string(
-        HTML_PAGE,
-        chain_json=json.dumps([b.to_dict() for b in chain.chain], indent=2),
-        default_wallet=default_wallet,
-        balance=balance,
-        new_wallet=None,
-        message=None
-    )
-
-@app.route("/create_wallet", methods=["POST"])
-def create_wallet():
-    wallet = Wallet()
-    return render_template_string(
-        HTML_PAGE,
-        chain_json=json.dumps([b.to_dict() for b in chain.chain], indent=2),
-        default_wallet=wallet.address,
-        balance=0,
-        new_wallet=wallet.address,
-        message="✅ Wallet created"
-    )
-
-@app.route("/mine", methods=["POST"])
+@app.route("/mine", methods=["POST", "GET"])
 def mine():
-    miner = request.form.get("miner")
-    if not miner:
-        return "Miner address required", 400
+    miner = request.args.get("to") or node_wallet.address
     block = chain.mine(miner)
-    balances, _ = chain.compute_balances_and_nonces()
-    return render_template_string(
-        HTML_PAGE,
-        chain_json=json.dumps([b.to_dict() for b in chain.chain], indent=2),
-        default_wallet=miner,
-        balance=balances.get(miner, 0),
-        new_wallet=None,
-        message=f"⛏️ Mined block {block.index}!"
-    )
+    return {"block": block.to_dict()}, 200
 
-@app.route("/send", methods=["POST"])
-def send():
-    sender = request.form.get("sender")
-    recipient = request.form.get("recipient")
-    amount = int(request.form.get("amount", 0))
-    
-    balances, _ = chain.compute_balances_and_nonces()
-    if balances.get(sender, 0) < amount:
-        return render_template_string(
-            HTML_PAGE,
-            chain_json=json.dumps([b.to_dict() for b in chain.chain], indent=2),
-            default_wallet=sender,
-            balance=balances.get(sender, 0),
-            new_wallet=None,
-            message=f"❌ Insufficient balance ({balances.get(sender,0)})"
-        )
-    
-    tx = Transaction(sender=sender, recipient=recipient, amount=amount, nonce=0)
-    chain.current_transactions.append(tx)
-    
-    # Auto-mine so transaction confirms immediately
-    chain.mine(sender)
-    
-    balances, _ = chain.compute_balances_and_nonces()
-    return render_template_string(
-        HTML_PAGE,
-        chain_json=json.dumps([b.to_dict() for b in chain.chain], indent=2),
-        default_wallet=sender,
-        balance=balances.get(sender, 0),
-        new_wallet=None,
-        message=f"✅ Sent {amount} to {recipient}"
-    )
 
 # ------------------- Main -------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    print(f"🚀 Starting Cypher Node on port {port}")
-    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    try:
+        node_id = os.environ.get("NODE_ID", "default-node")
+        genesis_path = os.environ.get("GENESIS_PATH", "config/genesis.json")
+
+        chain = Blockchain(node_id=node_id, genesis_path=genesis_path)
+        node_wallet = Wallet()
+
+        # ✅ Use PORT from environment (important for cloud hosts)
+        port = int(os.environ.get("PORT", 5000))
+
+        print(f"🚀 Starting Cypher Node '{node_id}' on port {port}")
+        app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+
+    except Exception:
+        traceback.print_exc()
+
