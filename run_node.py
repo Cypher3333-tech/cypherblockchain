@@ -4,6 +4,7 @@ import traceback
 from flask import Flask, request, jsonify
 from cypher.blockchain import Blockchain, Transaction
 from cypher.wallet import Wallet
+from typing import Optional
 
 app = Flask(__name__)
 
@@ -12,16 +13,23 @@ DATA_DIR = os.path.join(os.getcwd(), "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 node_wallet = Wallet()
-chain = None  # will be initialized below
+chain: Optional[Blockchain] = None  # will be initialized below
 
 # ---------------------- API ----------------------
 @app.route("/health", methods=["GET"])
 def health():
-    return {"status": "ok", "node_id": chain.node_id, "wallet": node_wallet.get_address()}
+    return {
+        "status": "ok",
+        "node_id": chain.node_id if chain else "not initialized",
+        "wallet": node_wallet.get_address()
+    }
 
 @app.route("/chain", methods=["GET"])
 def get_chain():
-    return {"length": len(chain.chain), "chain": [b.to_dict() for b in chain.chain]}
+    return {
+        "length": len(chain.chain),
+        "chain": [b.to_dict() for b in chain.chain]
+    }
 
 @app.route("/mine", methods=["POST", "GET"])
 def mine():
@@ -31,7 +39,10 @@ def mine():
 @app.route("/balance", methods=["GET"])
 def balance():
     balances, _ = chain.compute_balances_and_nonces()
-    return {"address": node_wallet.get_address(), "balance": balances.get(node_wallet.get_address(), 0)}
+    return {
+        "address": node_wallet.get_address(),
+        "balance": balances.get(node_wallet.get_address(), 0)
+    }
 
 @app.route("/send", methods=["POST"])
 def send():
