@@ -1,0 +1,17 @@
+[
+  {
+    "index": 0,
+    "timestamp": 1755341252.5913427,
+    "transactions": [
+      {
+        "sender": "GENESIS_FAUCET",
+        "recipient": "GENESIS_FAUCET",
+        "amount": 100000000000000000000000000000000000000000,
+        "nonce": 0
+      }
+    ],
+    "previous_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "nonce": 0,
+    "difficulty": 4
+  }
+]
