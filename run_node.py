@@ -1,4 +1,3 @@
-# run_node.py
 import os
 import traceback
 from flask import Flask, request, jsonify
@@ -13,7 +12,7 @@ DATA_DIR = os.path.join(os.getcwd(), "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 node_wallet = Wallet()
-chain: Optional[Blockchain] = None  # will be initialized below
+chain: Optional[Blockchain] = None  # initialized below
 
 # ---------------------- API ----------------------
 @app.route("/health", methods=["GET"])
@@ -52,19 +51,18 @@ def send():
     if not recipient or amount <= 0:
         return {"error": "Invalid recipient or amount"}, 400
 
-    # create transaction (ignore signature & nonce for testing)
+    balances, _ = chain.compute_balances_and_nonces()
+    sender_balance = balances.get(node_wallet.get_address(), 0)
+    if sender_balance < amount:
+        return {"error": f"Insufficient balance ({sender_balance})"}, 400
+
+    # create transaction with no signature/nonce check
     tx = Transaction(
         sender=node_wallet.get_address(),
         recipient=recipient,
         amount=amount,
         nonce=0
     )
-    # Check balance manually
-    balances, _ = chain.compute_balances_and_nonces()
-    sender_balance = balances.get(tx.sender, 0)
-    if sender_balance < amount:
-        return {"error": f"Insufficient balance ({sender_balance})"}, 400
-
     chain.new_transaction(tx)
     return {"tx": tx.to_dict()}
 
@@ -73,6 +71,9 @@ if __name__ == "__main__":
     try:
         node_id = os.environ.get("NODE_ID", "default-node")
         genesis_path = os.environ.get("GENESIS_PATH", "config/genesis.json")
+        if not os.path.exists(genesis_path):
+            # fallback genesis
+            genesis_path = "genesis.json"
 
         chain = Blockchain(node_id=node_id, genesis_path=genesis_path)
 
