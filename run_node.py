@@ -1,47 +1,59 @@
+# run_node.py
 import os
-import traceback
+import json
+import time
 from flask import Flask, request, jsonify
 from cypher.blockchain import Blockchain, Transaction
 from cypher.wallet import Wallet
-from typing import Optional
 
 app = Flask(__name__)
 
-# ---------------------- Initialize ----------------------
 DATA_DIR = os.path.join(os.getcwd(), "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
-node_wallet = Wallet()
-chain: Optional[Blockchain] = None  # initialized below
+# Auto-generate genesis.json if missing
+GENESIS_PATH = os.path.join(DATA_DIR, "genesis.json")
+if not os.path.exists(GENESIS_PATH):
+    genesis = {
+        "chain_id": "cypher-mainnet",
+        "genesis_time": "2025-08-16T00:00:00Z",
+        "initial_difficulty": 1,
+        "block_reward": 50,
+        "premine": [
+            {"sender": "GENESIS_FAUCET", "recipient": "GENESIS_FAUCET", "amount": 1000000, "nonce": 0}
+        ]
+    }
+    with open(GENESIS_PATH, "w") as f:
+        json.dump(genesis, f)
 
-# ---------------------- API ----------------------
+# Initialize blockchain and wallet
+NODE_ID = os.environ.get("NODE_ID", "default-node")
+chain = Blockchain(node_id=NODE_ID, genesis_path=GENESIS_PATH)
+wallet = Wallet()
+
+# ------------------- API -------------------
 @app.route("/health", methods=["GET"])
 def health():
-    return {
-        "status": "ok",
-        "node_id": chain.node_id if chain else "not initialized",
-        "wallet": node_wallet.get_address()
-    }
+    return {"status": "ok", "node_id": NODE_ID}, 200
 
-@app.route("/chain", methods=["GET"])
-def get_chain():
+@app.route("/wallet", methods=["GET"])
+def get_wallet():
     return {
-        "length": len(chain.chain),
-        "chain": [b.to_dict() for b in chain.chain]
-    }
+        "address": wallet.address,
+        "public_key": wallet.public_key,
+        "private_key": wallet.private_key
+    }, 200
+
+@app.route("/balance", methods=["GET"])
+def get_balance():
+    balances, _ = chain.compute_balances_and_nonces()
+    balance = balances.get(wallet.address, 0)
+    return {"address": wallet.address, "balance": balance}, 200
 
 @app.route("/mine", methods=["POST", "GET"])
 def mine():
-    block = chain.mine(node_wallet.get_address())
-    return {"block": block.to_dict()}
-
-@app.route("/balance", methods=["GET"])
-def balance():
-    balances, _ = chain.compute_balances_and_nonces()
-    return {
-        "address": node_wallet.get_address(),
-        "balance": balances.get(node_wallet.get_address(), 0)
-    }
+    block = chain.mine(wallet.address)
+    return {"block": block.to_dict()}, 200
 
 @app.route("/send", methods=["POST"])
 def send():
@@ -49,38 +61,20 @@ def send():
     recipient = data.get("recipient")
     amount = int(data.get("amount", 0))
     if not recipient or amount <= 0:
-        return {"error": "Invalid recipient or amount"}, 400
+        return {"error": "invalid recipient or amount"}, 400
 
-    balances, _ = chain.compute_balances_and_nonces()
-    sender_balance = balances.get(node_wallet.get_address(), 0)
-    if sender_balance < amount:
-        return {"error": f"Insufficient balance ({sender_balance})"}, 400
+    # naive transaction (no signature/nonce required)
+    tx = Transaction(sender=wallet.address, recipient=recipient, amount=amount, nonce=0)
+    success = chain.new_transaction(tx)
+    if not success:
+        return {"error": "insufficient balance"}, 400
+    return {"status": "ok", "tx": tx.to_dict()}, 200
 
-    # create transaction with no signature/nonce check
-    tx = Transaction(
-        sender=node_wallet.get_address(),
-        recipient=recipient,
-        amount=amount,
-        nonce=0
-    )
-    chain.new_transaction(tx)
-    return {"tx": tx.to_dict()}
+@app.route("/chain", methods=["GET"])
+def get_chain():
+    return {"length": len(chain.chain), "chain": [b.to_dict() for b in chain.chain]}, 200
 
-# ---------------------- Start Node ----------------------
+# ------------------- Run -------------------
 if __name__ == "__main__":
-    try:
-        node_id = os.environ.get("NODE_ID", "default-node")
-        genesis_path = os.environ.get("GENESIS_PATH", "config/genesis.json")
-        if not os.path.exists(genesis_path):
-            # fallback genesis
-            genesis_path = "genesis.json"
-
-        chain = Blockchain(node_id=node_id, genesis_path=genesis_path)
-
-        port = int(os.environ.get("PORT", 5000))
-        print(f"🚀 Starting node '{node_id}' on port {port}")
-        print(f"Wallet address: {node_wallet.get_address()}")
-        app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
-
-    except Exception:
-        traceback.print_exc()
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
